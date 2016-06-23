@@ -48,15 +48,14 @@ public class RawModeKafkaBinderTests extends KafkaBinderTests {
 	@Override
 	public void testPartitionedModuleJava() throws Exception {
 		KafkaTestBinder binder = getBinder();
-		ExtendedProducerProperties<KafkaProducerProperties> properties = createProducerProperties();
-		properties.setHeaderMode(HeaderMode.raw);
-		properties.setPartitionKeyExtractorClass(RawKafkaPartitionTestSupport.class);
-		properties.setPartitionSelectorClass(RawKafkaPartitionTestSupport.class);
-		properties.setPartitionCount(6);
+		ExtendedProducerProperties<KafkaProducerProperties> producerProperties = createProducerProperties();
+		producerProperties.setHeaderMode(HeaderMode.raw);
+		producerProperties.setPartitionKeyExtractorClass(RawKafkaPartitionTestSupport.class);
+		producerProperties.setPartitionSelectorClass(RawKafkaPartitionTestSupport.class);
+		producerProperties.setPartitionCount(6);
 
-		DirectChannel output = new DirectChannel();
-		output.setBeanName("test.output");
-		Binding<MessageChannel> outputBinding = binder.bindProducer("partJ.0", output, properties);
+		DirectChannel output = createChannel("output", createProducerBindingProperties(producerProperties));
+		Binding<MessageChannel> outputBinding = binder.bindProducer("partJ.0", output, producerProperties);
 
 		ExtendedConsumerProperties<KafkaConsumerProperties> consumerProperties = createConsumerProperties();
 		consumerProperties.setConcurrency(2);
@@ -100,23 +99,20 @@ public class RawModeKafkaBinderTests extends KafkaBinderTests {
 	@Override
 	public void testPartitionedModuleSpEL() throws Exception {
 		KafkaTestBinder binder = getBinder();
-		ExtendedProducerProperties<KafkaProducerProperties> properties = createProducerProperties();
-		properties.setPartitionKeyExpression(spelExpressionParser.parseExpression("payload[0]"));
-		properties.setPartitionSelectorExpression(spelExpressionParser.parseExpression("hashCode()"));
-		properties.setPartitionCount(6);
-		properties.setHeaderMode(HeaderMode.raw);
-
-		DirectChannel output = new DirectChannel();
+		ExtendedProducerProperties<KafkaProducerProperties> producerProperties = createProducerProperties();
+		producerProperties.setPartitionKeyExpression(spelExpressionParser.parseExpression("payload[0]"));
+		producerProperties.setPartitionSelectorExpression(spelExpressionParser.parseExpression("hashCode()"));
+		producerProperties.setPartitionCount(6);
+		producerProperties.setHeaderMode(HeaderMode.raw);
+		DirectChannel output = createChannel("output", createProducerBindingProperties(producerProperties));
 		output.setBeanName("test.output");
-		Binding<MessageChannel> outputBinding = binder.bindProducer("part.0", output, properties);
+		Binding<MessageChannel> outputBinding = binder.bindProducer("part.0", output, producerProperties);
 		try {
 			AbstractEndpoint endpoint = extractEndpoint(outputBinding);
 			assertThat(getEndpointRouting(endpoint)).contains("part.0-' + headers['partition']");
 		}
 		catch (UnsupportedOperationException ignored) {
-
 		}
-
 		ExtendedConsumerProperties<KafkaConsumerProperties> consumerProperties = createConsumerProperties();
 		consumerProperties.setConcurrency(2);
 		consumerProperties.setInstanceIndex(0);
@@ -160,13 +156,15 @@ public class RawModeKafkaBinderTests extends KafkaBinderTests {
 	@Override
 	public void testSendAndReceive() throws Exception {
 		KafkaTestBinder binder = getBinder();
-		DirectChannel moduleOutputChannel = new DirectChannel();
-		QueueChannel moduleInputChannel = new QueueChannel();
 		ExtendedProducerProperties<KafkaProducerProperties> producerProperties = createProducerProperties();
+		DirectChannel moduleOutputChannel = createChannel("output",
+				createProducerBindingProperties(producerProperties));
 		producerProperties.setHeaderMode(HeaderMode.raw);
-		Binding<MessageChannel> producerBinding = binder.bindProducer("foo.0", moduleOutputChannel, producerProperties);
+		Binding<MessageChannel> producerBinding = binder.bindProducer("foo.0", moduleOutputChannel,
+				producerProperties);
 		ExtendedConsumerProperties<KafkaConsumerProperties> consumerProperties = createConsumerProperties();
 		consumerProperties.setHeaderMode(HeaderMode.raw);
+		QueueChannel moduleInputChannel = new QueueChannel();
 		Binding<MessageChannel> consumerBinding = binder.bindConsumer("foo.0", "test", moduleInputChannel,
 				consumerProperties);
 		Message<?> message = MessageBuilder.withPayload("foo".getBytes()).build();
