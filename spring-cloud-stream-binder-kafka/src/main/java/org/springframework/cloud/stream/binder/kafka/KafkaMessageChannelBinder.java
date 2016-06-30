@@ -56,7 +56,6 @@ import org.springframework.cloud.stream.binder.BinderHeaders;
 import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
 import org.springframework.cloud.stream.binder.ExtendedPropertiesBinder;
-import org.springframework.cloud.stream.binder.HeaderMode;
 import org.springframework.cloud.stream.binder.kafka.config.KafkaBinderConfigurationProperties;
 import org.springframework.context.Lifecycle;
 import org.springframework.integration.endpoint.AbstractEndpoint;
@@ -125,8 +124,6 @@ public class KafkaMessageChannelBinder extends
 
 	private final KafkaBinderConfigurationProperties configurationProperties;
 
-	private final String[] headersToMap;
-
 	private RetryOperations metadataRetryOperations;
 
 	private final Map<String, Collection<Partition>> topicsInUse = new HashMap<>();
@@ -142,18 +139,24 @@ public class KafkaMessageChannelBinder extends
 	private KafkaExtendedBindingProperties extendedBindingProperties = new KafkaExtendedBindingProperties();
 
 	public KafkaMessageChannelBinder(KafkaBinderConfigurationProperties configurationProperties) {
+		super(false, headersToMap(configurationProperties));
 		this.configurationProperties = configurationProperties;
-		String[] configuredHeaders = configurationProperties.getHeaders();
-		if (ObjectUtils.isEmpty(configuredHeaders)) {
-			this.headersToMap = BinderHeaders.STANDARD_HEADERS;
+	}
+
+	private static String[] headersToMap(KafkaBinderConfigurationProperties configurationProperties) {
+		String[] headersToMap;
+		if (ObjectUtils.isEmpty(configurationProperties.getHeaders())) {
+			headersToMap = BinderHeaders.STANDARD_HEADERS;
 		}
 		else {
 			String[] combinedHeadersToMap = Arrays.copyOfRange(BinderHeaders.STANDARD_HEADERS, 0,
-					BinderHeaders.STANDARD_HEADERS.length + configuredHeaders.length);
-			System.arraycopy(configuredHeaders, 0, combinedHeadersToMap, BinderHeaders.STANDARD_HEADERS.length,
-					configuredHeaders.length);
-			this.headersToMap = combinedHeadersToMap;
+					BinderHeaders.STANDARD_HEADERS.length + configurationProperties.getHeaders().length);
+			System.arraycopy(configurationProperties.getHeaders(), 0, combinedHeadersToMap,
+					BinderHeaders.STANDARD_HEADERS.length,
+					configurationProperties.getHeaders().length);
+			headersToMap = combinedHeadersToMap;
 		}
+		return headersToMap;
 	}
 
 	ConnectionFactory getConnectionFactory() {
@@ -636,20 +639,6 @@ public class KafkaMessageChannelBinder extends
 					"Acknowledgement shouldn't be null when acknowledging kafka message " + "manually.");
 			acknowledgment.acknowledge();
 		}
-	}
-
-	protected boolean handleEmbeddedHeaders(HeaderMode headerMode) {
-		return HeaderMode.embeddedHeaders.equals(headerMode);
-	}
-
-	@Override
-	protected String[] getHeadersToMap() {
-		return this.headersToMap;
-	}
-
-	@Override
-	protected boolean isSupportsHeaders() {
-		return false;
 	}
 
 	public enum StartOffset {
