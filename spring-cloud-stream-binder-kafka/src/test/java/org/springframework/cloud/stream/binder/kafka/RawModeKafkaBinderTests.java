@@ -25,10 +25,10 @@ import org.springframework.cloud.stream.binder.Binding;
 import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
 import org.springframework.cloud.stream.binder.HeaderMode;
+import org.springframework.context.Lifecycle;
 import org.springframework.integration.IntegrationMessageHeaderAccessor;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.channel.QueueChannel;
-import org.springframework.integration.endpoint.AbstractEndpoint;
 import org.springframework.integration.support.MessageBuilder;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -108,7 +108,7 @@ public class RawModeKafkaBinderTests extends KafkaBinderTests {
 		output.setBeanName("test.output");
 		Binding<MessageChannel> outputBinding = binder.bindProducer("part.0", output, producerProperties);
 		try {
-			AbstractEndpoint endpoint = extractEndpoint(outputBinding);
+			Lifecycle endpoint = extractEndpoint(outputBinding);
 			assertThat(getEndpointRouting(endpoint)).contains("part.0-' + headers['partition']");
 		}
 		catch (UnsupportedOperationException ignored) {

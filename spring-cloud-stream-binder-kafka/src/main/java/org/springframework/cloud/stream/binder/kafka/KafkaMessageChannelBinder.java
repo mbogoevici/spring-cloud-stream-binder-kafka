@@ -53,17 +53,13 @@ import org.springframework.cloud.stream.binder.AbstractMessageChannelBinder;
 import org.springframework.cloud.stream.binder.Binder;
 import org.springframework.cloud.stream.binder.BinderException;
 import org.springframework.cloud.stream.binder.BinderHeaders;
-import org.springframework.cloud.stream.binder.Binding;
-import org.springframework.cloud.stream.binder.DefaultBinding;
 import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
 import org.springframework.cloud.stream.binder.ExtendedPropertiesBinder;
 import org.springframework.cloud.stream.binder.HeaderMode;
-import org.springframework.cloud.stream.binder.MessageValues;
 import org.springframework.cloud.stream.binder.kafka.config.KafkaBinderConfigurationProperties;
-import org.springframework.integration.channel.FixedSubscriberChannel;
+import org.springframework.context.Lifecycle;
 import org.springframework.integration.endpoint.AbstractEndpoint;
-import org.springframework.integration.endpoint.EventDrivenConsumer;
 import org.springframework.integration.kafka.core.ConnectionFactory;
 import org.springframework.integration.kafka.core.DefaultConnectionFactory;
 import org.springframework.integration.kafka.core.KafkaMessage;
@@ -78,6 +74,7 @@ import org.springframework.integration.kafka.listener.KafkaNativeOffsetManager;
 import org.springframework.integration.kafka.listener.MessageListener;
 import org.springframework.integration.kafka.listener.OffsetManager;
 import org.springframework.integration.kafka.support.KafkaHeaders;
+import org.springframework.integration.kafka.support.KafkaProducerContext;
 import org.springframework.integration.kafka.support.ProducerConfiguration;
 import org.springframework.integration.kafka.support.ProducerFactoryBean;
 import org.springframework.integration.kafka.support.ProducerListener;
@@ -87,8 +84,7 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.MessageHeaders;
-import org.springframework.messaging.SubscribableChannel;
-import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.messaging.MessagingException;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.RetryContext;
 import org.springframework.retry.RetryOperations;
@@ -279,23 +275,31 @@ public class KafkaMessageChannelBinder extends
 	@SuppressWarnings("unchecked")
 	protected AbstractEndpoint createConsumerEndpoint(String name, String group, Object queue,
 			MessageChannel inputChannel, ExtendedConsumerProperties<KafkaConsumerProperties> properties) {
+
 		Collection<Partition> listenedPartitions = (Collection<Partition>) queue;
-		final boolean handleEmbeddedHeaders = HeaderMode.embeddedHeaders.equals(properties.getHeaderMode());
-		ReceivingHandler rh = new ReceivingHandler(handleEmbeddedHeaders, handleEmbeddedHeaders) {
+		Assert.isTrue(!CollectionUtils.isEmpty(listenedPartitions), "A list of partitions must be provided");
+
+		int concurrency = Math.min(properties.getConcurrency(), listenedPartitions.size());
+
+		final ExecutorService dispatcherTaskExecutor =
+				Executors.newFixedThreadPool(concurrency, DAEMON_THREAD_FACTORY);
+		final KafkaMessageListenerContainer messageListenerContainer = new KafkaMessageListenerContainer(
+				this.connectionFactory, listenedPartitions.toArray(new Partition[listenedPartitions.size()])) {
 
 			@Override
-			protected Message<Object> createMessage(MessageValues messageValues) {
-				return MessageBuilder.createMessage(messageValues.getPayload(), new KafkaBinderHeaders(messageValues));
+			public void stop(Runnable callback) {
+				super.stop(callback);
+				if (getOffsetManager() instanceof DisposableBean) {
+					try {
+						((DisposableBean) getOffsetManager()).destroy();
+					}
+					catch (Exception e) {
+						KafkaMessageChannelBinder.this.logger.error("Error while closing the offset manager", e);
+					}
+				}
+				dispatcherTaskExecutor.shutdown();
 			}
 		};
-		rh.setOutputChannel(inputChannel);
-
-		final FixedSubscriberChannel bridge = new FixedSubscriberChannel(rh);
-		bridge.setBeanName("bridge." + name);
-
-		Assert.isTrue(!CollectionUtils.isEmpty(listenedPartitions), "A list of partitions must be provided");
-		final KafkaMessageListenerContainer messageListenerContainer = new KafkaMessageListenerContainer(
-				this.connectionFactory, listenedPartitions.toArray(new Partition[listenedPartitions.size()]));
 
 		if (this.logger.isDebugEnabled()) {
 			this.logger.debug(
@@ -322,18 +326,14 @@ public class KafkaMessageChannelBinder extends
 				: properties.getExtension().isAutoCommitOffset() && properties.getExtension().isEnableDlq();
 		messageListenerContainer.setAutoCommitOnError(autoCommitOnError);
 		messageListenerContainer.setRecoveryInterval(properties.getExtension().getRecoveryInterval());
-
-		int concurrency = Math.min(properties.getConcurrency(), listenedPartitions.size());
 		messageListenerContainer.setConcurrency(concurrency);
-		final ExecutorService dispatcherTaskExecutor =
-				Executors.newFixedThreadPool(concurrency, DAEMON_THREAD_FACTORY);
 		messageListenerContainer.setDispatcherTaskExecutor(dispatcherTaskExecutor);
 		final KafkaMessageDrivenChannelAdapter kafkaMessageDrivenChannelAdapter = new KafkaMessageDrivenChannelAdapter(
 				messageListenerContainer);
 		kafkaMessageDrivenChannelAdapter.setBeanFactory(this.getBeanFactory());
 		kafkaMessageDrivenChannelAdapter.setKeyDecoder(new DefaultDecoder(null));
 		kafkaMessageDrivenChannelAdapter.setPayloadDecoder(new DefaultDecoder(null));
-		kafkaMessageDrivenChannelAdapter.setOutputChannel(bridge);
+		kafkaMessageDrivenChannelAdapter.setOutputChannel(inputChannel);
 		kafkaMessageDrivenChannelAdapter.setAutoCommitOffset(properties.getExtension().isAutoCommitOffset());
 		kafkaMessageDrivenChannelAdapter.afterPropertiesSet();
 
@@ -428,34 +428,13 @@ public class KafkaMessageChannelBinder extends
 				}
 			});
 		}
+
 		kafkaMessageDrivenChannelAdapter.start();
-
-		EventDrivenConsumer edc = new EventDrivenConsumer(bridge, rh) {
-
-			@Override
-			protected void doStop() {
-				// stop the offset manager and the channel adapter before unbinding
-				// this means that the upstream channel adapter has a chance to stop
-				kafkaMessageDrivenChannelAdapter.stop();
-				if (messageListenerContainer.getOffsetManager() instanceof DisposableBean) {
-					try {
-						((DisposableBean) messageListenerContainer.getOffsetManager()).destroy();
-					}
-					catch (Exception e) {
-						this.logger.error("Error while closing the offset manager", e);
-					}
-				}
-				dispatcherTaskExecutor.shutdown();
-				super.doStop();
-			}
-		};
-		edc.setBeanName("inbound." + groupedName(name, consumerGroup));
-		edc.start();
-		return edc;
+		return kafkaMessageDrivenChannelAdapter;
 	}
 
 	@Override
-	protected MessageHandler createProducerEndpoint(final String name,
+	protected MessageHandler createProducerMessageHandler(final String name,
 			ExtendedProducerProperties<KafkaProducerProperties> producerProperties) throws Exception {
 		ProducerMetadata<byte[], byte[]> producerMetadata = new ProducerMetadata<>(name, byte[].class, byte[].class,
 				BYTE_ARRAY_SERIALIZER, BYTE_ARRAY_SERIALIZER);
@@ -471,27 +450,10 @@ public class KafkaMessageChannelBinder extends
 		final ProducerConfiguration<byte[], byte[]> producerConfiguration = new ProducerConfiguration<>(
 				producerMetadata, producerFB.getObject());
 		producerConfiguration.setProducerListener(this.producerListener);
-		return new SendingHandler<ProducerConfiguration<byte[], byte[]>, byte[]>(producerConfiguration,
-				producerProperties, false,
-				this.headersToMap) {
-			@Override
-			protected void send(byte[] payload, Map<String, Object> headers) {
-				this.delegate.send(name, (Integer) headers.get(BinderHeaders.PARTITION_HEADER), null, payload);
-			}
-		};
-	}
-
-	@Override
-	protected Binding<MessageChannel> createProducerBinding(String name, MessageChannel outputChannel,
-			MessageHandler handler, ExtendedProducerProperties<KafkaProducerProperties> producerProperties) {
-		EventDrivenConsumer consumer = new EventDrivenConsumer((SubscribableChannel) outputChannel, handler);
-		consumer.setBeanFactory(this.getBeanFactory());
-		consumer.setBeanName("outbound." + name);
-		consumer.afterPropertiesSet();
-		DefaultBinding<MessageChannel> producerBinding = new DefaultBinding<>(name, null, outputChannel,
-				consumer);
-		consumer.start();
-		return producerBinding;
+		KafkaProducerContext kafkaProducerContext = new KafkaProducerContext();
+		kafkaProducerContext.setProducerConfigurations(
+				Collections.<String, ProducerConfiguration<?, ?>>singletonMap(name, producerConfiguration));
+		return new ProducerConfigurationMessageHandler(producerConfiguration, name);
 	}
 
 	@Override
@@ -676,12 +638,18 @@ public class KafkaMessageChannelBinder extends
 		}
 	}
 
-	@SuppressWarnings("serial")
-	private final class KafkaBinderHeaders extends MessageHeaders {
+	protected boolean handleEmbeddedHeaders(HeaderMode headerMode) {
+		return HeaderMode.embeddedHeaders.equals(headerMode);
+	}
 
-		KafkaBinderHeaders(Map<String, Object> headers) {
-			super(headers, MessageHeaders.ID_VALUE_NONE, -1L);
-		}
+	@Override
+	protected String[] getHeadersToMap() {
+		return this.headersToMap;
+	}
+
+	@Override
+	protected boolean isSupportsHeaders() {
+		return false;
 	}
 
 	public enum StartOffset {
@@ -698,4 +666,43 @@ public class KafkaMessageChannelBinder extends
 		}
 	}
 
+	private final static class ProducerConfigurationMessageHandler implements MessageHandler, Lifecycle {
+
+		private ProducerConfiguration<byte[], byte[]> delegate;
+
+		private String targetTopic;
+
+		private boolean running = true;
+
+		private ProducerConfigurationMessageHandler(
+				ProducerConfiguration<byte[], byte[]> delegate, String targetTopic) {
+			Assert.notNull(delegate, "Delegate cannot be null");
+			Assert.hasText(targetTopic, "Target topic cannot be null");
+			this.delegate = delegate;
+			this.targetTopic = targetTopic;
+
+		}
+
+		@Override
+		public void start() {
+		}
+
+		@Override
+		public void stop() {
+			this.delegate.stop();
+			this.running = false;
+		}
+
+		@Override
+		public boolean isRunning() {
+			return this.running;
+		}
+
+		@Override
+		public void handleMessage(Message<?> message) throws MessagingException {
+			this.delegate.send(this.targetTopic,
+					message.getHeaders().get(BinderHeaders.PARTITION_HEADER, Integer.class), null,
+					(byte[]) message.getPayload());
+		}
+	}
 }

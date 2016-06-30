@@ -567,9 +567,7 @@ public class KafkaBinderTests extends
 		properties.getExtension().setSync(true);
 		Binding<MessageChannel> producerBinding = binder.bindProducer(testTopicName, output, properties);
 		DirectFieldAccessor accessor = new DirectFieldAccessor(extractEndpoint(producerBinding));
-		MessageHandler handler = (MessageHandler) accessor.getPropertyValue("handler");
-		DirectFieldAccessor accessor1 = new DirectFieldAccessor(handler);
-		ProducerConfiguration producerConfiguration = (ProducerConfiguration) accessor1
+		ProducerConfiguration producerConfiguration = (ProducerConfiguration) accessor
 				.getPropertyValue("delegate");
 		assertThat(producerConfiguration.getProducerMetadata().isSync())
 				.withFailMessage("Kafka Sync Producer should have been enabled.");
@@ -681,7 +679,7 @@ public class KafkaBinderTests extends
 		Binding<?> binding = binder.doBindConsumer(testTopicName, "test", output, consumerProperties);
 
 		Partition[] listenedPartitions = TestUtils.getPropertyValue(binding,
-				"endpoint.val$messageListenerContainer.partitions", Partition[].class);
+				"endpoint.messageListenerContainer.partitions", Partition[].class);
 
 		assertThat(listenedPartitions).hasSize(2);
 		assertThat(listenedPartitions).contains(new Partition(testTopicName, 2), new Partition(testTopicName, 5));
