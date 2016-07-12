@@ -22,8 +22,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
@@ -72,7 +70,6 @@ import org.springframework.integration.kafka.listener.KafkaMessageListenerContai
 import org.springframework.integration.kafka.listener.KafkaNativeOffsetManager;
 import org.springframework.integration.kafka.listener.MessageListener;
 import org.springframework.integration.kafka.listener.OffsetManager;
-import org.springframework.integration.kafka.support.KafkaHeaders;
 import org.springframework.integration.kafka.support.KafkaProducerContext;
 import org.springframework.integration.kafka.support.ProducerConfiguration;
 import org.springframework.integration.kafka.support.ProducerFactoryBean;
@@ -82,7 +79,6 @@ import org.springframework.integration.kafka.support.ZookeeperConnect;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
-import org.springframework.messaging.MessageHeaders;
 import org.springframework.messaging.MessagingException;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.RetryContext;
@@ -625,18 +621,6 @@ public class KafkaMessageChannelBinder extends
 			return original;
 		}
 		return original.substring(0, maxCharacters) + "...";
-	}
-
-	@Override
-	public void doManualAck(LinkedList<MessageHeaders> messageHeadersList) {
-		Iterator<MessageHeaders> iterator = messageHeadersList.iterator();
-		while (iterator.hasNext()) {
-			MessageHeaders headers = iterator.next();
-			Acknowledgment acknowledgment = (Acknowledgment) headers.get(KafkaHeaders.ACKNOWLEDGMENT);
-			Assert.notNull(acknowledgment,
-					"Acknowledgement shouldn't be null when acknowledging kafka message " + "manually.");
-			acknowledgment.acknowledge();
-		}
 	}
 
 	public enum StartOffset {
