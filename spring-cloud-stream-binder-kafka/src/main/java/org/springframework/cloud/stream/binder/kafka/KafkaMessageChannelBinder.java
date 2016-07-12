@@ -58,7 +58,7 @@ import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
 import org.springframework.cloud.stream.binder.ExtendedPropertiesBinder;
 import org.springframework.cloud.stream.binder.kafka.config.KafkaBinderConfigurationProperties;
 import org.springframework.context.Lifecycle;
-import org.springframework.integration.endpoint.AbstractEndpoint;
+import org.springframework.integration.core.MessageProducer;
 import org.springframework.integration.kafka.core.ConnectionFactory;
 import org.springframework.integration.kafka.core.DefaultConnectionFactory;
 import org.springframework.integration.kafka.core.KafkaMessage;
@@ -276,8 +276,8 @@ public class KafkaMessageChannelBinder extends
 
 	@Override
 	@SuppressWarnings("unchecked")
-	protected AbstractEndpoint createConsumerEndpoint(String name, String group, Object queue,
-			MessageChannel inputChannel, ExtendedConsumerProperties<KafkaConsumerProperties> properties) {
+	protected MessageProducer createConsumerEndpoint(String name, String group, Object queue,
+			ExtendedConsumerProperties<KafkaConsumerProperties> properties) {
 
 		Collection<Partition> listenedPartitions = (Collection<Partition>) queue;
 		Assert.isTrue(!CollectionUtils.isEmpty(listenedPartitions), "A list of partitions must be provided");
@@ -336,7 +336,6 @@ public class KafkaMessageChannelBinder extends
 		kafkaMessageDrivenChannelAdapter.setBeanFactory(this.getBeanFactory());
 		kafkaMessageDrivenChannelAdapter.setKeyDecoder(new DefaultDecoder(null));
 		kafkaMessageDrivenChannelAdapter.setPayloadDecoder(new DefaultDecoder(null));
-		kafkaMessageDrivenChannelAdapter.setOutputChannel(inputChannel);
 		kafkaMessageDrivenChannelAdapter.setAutoCommitOffset(properties.getExtension().isAutoCommitOffset());
 		kafkaMessageDrivenChannelAdapter.afterPropertiesSet();
 
@@ -431,15 +430,14 @@ public class KafkaMessageChannelBinder extends
 				}
 			});
 		}
-
-		kafkaMessageDrivenChannelAdapter.start();
 		return kafkaMessageDrivenChannelAdapter;
 	}
 
 	@Override
-	protected MessageHandler createProducerMessageHandler(final String name,
+	protected MessageHandler createProducerMessageHandler(final String destination,
 			ExtendedProducerProperties<KafkaProducerProperties> producerProperties) throws Exception {
-		ProducerMetadata<byte[], byte[]> producerMetadata = new ProducerMetadata<>(name, byte[].class, byte[].class,
+		ProducerMetadata<byte[], byte[]> producerMetadata = new ProducerMetadata<>(destination, byte[].class,
+				byte[].class,
 				BYTE_ARRAY_SERIALIZER, BYTE_ARRAY_SERIALIZER);
 		producerMetadata.setSync(producerProperties.getExtension().isSync());
 		producerMetadata.setCompressionType(producerProperties.getExtension().getCompressionType());
@@ -455,8 +453,8 @@ public class KafkaMessageChannelBinder extends
 		producerConfiguration.setProducerListener(this.producerListener);
 		KafkaProducerContext kafkaProducerContext = new KafkaProducerContext();
 		kafkaProducerContext.setProducerConfigurations(
-				Collections.<String, ProducerConfiguration<?, ?>>singletonMap(name, producerConfiguration));
-		return new ProducerConfigurationMessageHandler(producerConfiguration, name);
+				Collections.<String, ProducerConfiguration<?, ?>>singletonMap(destination, producerConfiguration));
+		return new ProducerConfigurationMessageHandler(producerConfiguration, destination);
 	}
 
 	@Override
