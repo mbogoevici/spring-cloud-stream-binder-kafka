@@ -1,0 +1,2 @@
+kstream:\
+org.springframework.cloud.stream.kafka.binder.kstream.config.KStreamBinderConfiguration
