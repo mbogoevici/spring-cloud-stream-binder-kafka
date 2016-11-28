@@ -2,7 +2,7 @@ package org.springframework.cloud.stream.kafka.binder.kstream.config;
 
 import org.springframework.cloud.stream.annotation.EnableBinding;
 import org.springframework.cloud.stream.config.ChannelBindingServiceProperties;
-import org.springframework.cloud.stream.kafka.binder.kstream.KStreamBindableTargetFactory;
+import org.springframework.cloud.stream.kafka.binder.kstream.KStreamBoundElementFactory;
 import org.springframework.cloud.stream.kafka.binder.kstream.KStreamStreamListenerResultAdapter;
 import org.springframework.context.annotation.Bean;
 
@@ -26,8 +26,8 @@ public class KStreamBinderSupportAutoConfiguration {
     }
 
     @Bean
-    public KStreamBindableTargetFactory kStreamBindableTargetFactory(KStreamBuilder kStreamBuilder, ChannelBindingServiceProperties channelBindingServiceProperties) {
-        return new KStreamBindableTargetFactory(kStreamBuilder, channelBindingServiceProperties);
+    public KStreamBoundElementFactory kStreamBindableTargetFactory(KStreamBuilder kStreamBuilder, ChannelBindingServiceProperties channelBindingServiceProperties) {
+        return new KStreamBoundElementFactory(kStreamBuilder, channelBindingServiceProperties);
     }
 
     @Bean
